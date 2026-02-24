@@ -40,13 +40,17 @@
 // Constructs a thresholded image in place, and saves as a new .pgm file.
 void saveThresholdImage( struct Image *img )
 {
-	int row, col;
+	int row;
 
 	// You need to parallelise this operation.
-	for( row=0; row<img->size; row++ )
-		for( col=0; col<img->size; col++ )
+	#pragma omp parallel for
+	for( row=0; row<img->size; row++ ) {
+		int col;
+		for( col=0; col<img->size; col++ ) {
 			img->pixels[row][col] = ( img->pixels[row][col]>127 ? 255 : 0 );
-
+		}
+	}
+	
 	// You must call this function to save your final image.
 	writeThresholdImage( img );
 }
