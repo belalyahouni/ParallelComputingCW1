@@ -60,6 +60,20 @@ void saveFlippedImage( struct Image *img )
 {
 	// Your parallel implementation should go here.
 
+	int row;
+
+	// Parallelise over the top half of rows only. Each row-pair is independent.
+	#pragma omp parallel for
+	for( row=0; row<img->size/2; row++ ) {
+		int col;
+		for( col=0; col<img->size; col++ ) {
+			// Swap using a temp variable, declared locally so it is private.
+			int temp = img->pixels[row][col];
+			img->pixels[row][col] = img->pixels[img->size-1-row][col];
+			img->pixels[img->size-1-row][col] = temp;
+		}
+	}
+
 	// You must call this function to save your final image.
 	writeFlippedImage( img );
 }
@@ -71,7 +85,45 @@ void saveEdgeImage( struct Image *img )
 	// edgeValue(row,col,img), which is defined in cwk_extra.h and returns higher values near edges.
 	// Note edgeValue() reads pixels at: [row-1][col], [row+1][col], [row][col-1], and [row][col+1].
 
-	// Your parallel implementation should go here.
+	// Allocate a temporary grid to store edge values, as per the copy approach in work1_sol4.c.
+	int **edgePixels;
+	allocSquareGrid( &edgePixels, img->size );
+
+	int row;
+
+	// Red-black pass 1: Process "red" cells where (row+col) is even.
+	#pragma omp parallel for
+	for( row=0; row<img->size; row++ ) {
+		int col;
+		for( col=0; col<img->size; col++ ) {
+			if( (row+col)%2 == 0 )
+				edgePixels[row][col] = edgeValue( row, col, img );
+		}
+	}
+
+	// Red-black pass 2: Process "black" cells where (row+col) is odd.
+	#pragma omp parallel for
+	for( row=0; row<img->size; row++ ) {
+		int col;
+		for( col=0; col<img->size; col++ ) {
+			if( (row+col)%2 == 1 )
+				edgePixels[row][col] = edgeValue( row, col, img );
+		}
+	}
+
+	// Copy the edge values back into the image, as per work1_sol4.c pattern.
+	#pragma omp parallel for
+	for( row=0; row<img->size; row++ ) {
+		int col;
+		for( col=0; col<img->size; col++ ) {
+			img->pixels[row][col] = edgePixels[row][col];
+		}
+	}
+
+	// Free the temporary grid.
+	int i;
+	for( i=0; i<img->size; i++ ) free( edgePixels[i] );
+	free( edgePixels );
 
 	// You must call this function to save your final image.
 	writeEdgeImage( img );
@@ -84,16 +136,20 @@ void generateHistogram( struct Image *img )
 	int *hist = (int*) calloc( MAXVALUE, sizeof(int) );
 
 	// Loop through all pixels and add to the relevant histogram bin.
-	int row, col;
+	int row;
 
-	// You need to parallelise this operation.
-	for( row=0; row<img->size; row++ )
+	// Parallelise outer loop. Use atomic to protect hist[val]++ (work1_sol6.c pattern).
+	#pragma omp parallel for
+	for( row=0; row<img->size; row++ ) {
+		int col;
 		for( col=0; col<img->size; col++ )
 		{
 			int val = img->pixels[row][col];
 			if( val>=0 && val<=MAXVALUE )		// Check that the value is in the valid range before updating the histogram.
+			#pragma omp atomic
 				hist[val]++;
 		}
+	}
 	
 	// Save the histogram to file. There is a Python script you can use to visualise the results from this file.
 	saveHistogram( hist );
